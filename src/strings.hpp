@@ -78,16 +78,16 @@ bool fuzzy_contains(std::string_view value, std::string_view str)
     const char first = str[0];
     const size_t max = value_count - str_count;
 
-    for (size_t i = 0; i < max; ++i) {
-        if (fuzzy_char_compare(value, i, first)) {
+    for (size_t i = 0; i <= max; ++i) {
+        if (!fuzzy_char_compare(value, i, first)) {
             while (++i <= max && !fuzzy_char_compare(value, i, first));
         }
 
         if (i <= max) {
             size_t j = i + 1;
-            const size_t true_end = j + str_count;
+            const size_t true_end = j + str_count - 1;
             const size_t end = (value_count > true_end) ? true_end : value_count;
-            for (size_t k = 0
+            for (size_t k = 1
                 ; j < end && fuzzy_char_compare(value, j, str[k])
                 ; ++j, ++k);
 

@@ -66,7 +66,7 @@ struct indexer_t
 };
 
 static
-void search_dir(indexer_t& indexer, size_t offset, uint32_t depth)
+void search_dir(indexer_t& indexer, size_t offset, uint32_t parent)
 {
     indexer.path[offset    ] = '\\';
     indexer.path[offset + 1] =  '*';
@@ -97,6 +97,7 @@ void search_dir(indexer_t& indexer, size_t offset, uint32_t depth)
         auto utf8_len = simdutf::convert_utf16_to_utf8(
             (const char16_t*)indexer.result.cFileName, len, indexer.utf8_buffer);
 
+        uint32_t node_index = uint32_t(indexer.index->file_nodes.size());
         {
             std::string_view view{ indexer.utf8_buffer, utf8_len };
             string_data_source_t source{ view };
@@ -115,7 +116,7 @@ void search_dir(indexer_t& indexer, size_t offset, uint32_t depth)
                 string_offset_index = existing->second;
             }
 
-            indexer.index->file_nodes.emplace_back(0, string_offset_index);
+            indexer.index->file_nodes.emplace_back(parent, string_offset_index);
         }
 
         if (++indexer.count % 10'000 == 0) {
@@ -125,7 +126,7 @@ void search_dir(indexer_t& indexer, size_t offset, uint32_t depth)
 
         if (indexer.result.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
             std::memcpy(&indexer.path[offset + 1], indexer.result.cFileName, len * 2);
-            search_dir(indexer, offset + len + 1, depth + 1);
+            search_dir(indexer, offset + len + 1, node_index);
         }
 
     } while (FindNextFileW(find_handle, &indexer.result));
@@ -138,7 +139,7 @@ void index_filesystem(indexer_t& indexer, const wchar_t* vol)
 {
     wcscpy(indexer.path, vol);
     std::wcout << std::format(L"Indexing volume: {}\n", vol);
-    search_dir(indexer, wcslen(vol) - 1, 0);
+    search_dir(indexer, wcslen(vol) - 1, UINT_MAX);
 }
 
 void index_filesystem(index_t& index)

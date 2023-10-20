@@ -19,6 +19,19 @@ struct index_t
         auto begin = string_offsets[index];
         return{ string_data.data() + begin, string_offsets[index + 1] - begin };
     }
+
+    std::string get_full_path(uint32_t node_index)
+    {
+        auto& node = file_nodes[node_index];
+        if (node.parent != UINT_MAX) {
+            auto path = get_full_path(node.parent);
+            path += '\\';
+            path += get_string(node.filename);
+            return path;
+        } else {
+            return std::string(get_string(node.filename));
+        }
+    }
 };
 
 void save_index(const index_t& index, const char* path);

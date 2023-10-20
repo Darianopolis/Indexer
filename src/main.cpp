@@ -107,7 +107,7 @@ int main(int argc, char* argv[])
         cmd.BindShaders({ shader });
         cmd.PushConstants(push_constants);
         constexpr uint32_t workgroupSize = 128;
-        constexpr uint32_t repeats = 8;
+        constexpr uint32_t repeats = 1;
         cmd.Dispatch(Vec3U(
             (push_constants.string_count + workgroupSize - 1) / workgroupSize,
             repeats, 1));

@@ -67,16 +67,16 @@ void main()
         const uint8_t first = needle[0];
         const uint max_count = value_count - str_count;
 
-        for (uint i = 0; i < max_count; ++i) {
-            if (fuzzy_char_compare(value_begin, i, first)) {
+        for (uint i = 0; i <= max_count; ++i) {
+            if (!fuzzy_char_compare(value_begin, i, first)) {
                 while (++i <= max_count && !fuzzy_char_compare(value_begin, i, first));
             }
 
             if (i <= max_count) {
                 uint j = i + 1;
-                const uint true_end = j + str_count;
+                const uint true_end = j + str_count - 1;
                 const uint end = (value_count > true_end) ? true_end : value_count;
-                for (uint k = 0
+                for (uint k = 1
                     ; j < end && fuzzy_char_compare(value_begin, j, needle[k])
                     ; ++j, ++k);
 
