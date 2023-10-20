@@ -4,6 +4,7 @@ if Project "index" then
     Import {
         "simdutf",
         "ankerl-maps",
+        "nova",
     }
     Artifact { "out/main", type = "Console" }
 end
