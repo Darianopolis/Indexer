@@ -1,0 +1,9 @@
+# env
+.vscode/
+build/
+
+# build
+out/
+
+# output
+index.bin
