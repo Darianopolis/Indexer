@@ -74,7 +74,7 @@ void main()
 
             if (i <= max_count) {
                 uint j = i + 1;
-                const uint true_end = j + str_count - 1;
+                const uint true_end = j + str_count;
                 const uint end = (value_count > true_end) ? true_end : value_count;
                 for (uint k = 0
                     ; j < end && fuzzy_char_compare(value_begin, j, needle[k])
