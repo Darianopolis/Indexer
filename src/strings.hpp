@@ -51,21 +51,26 @@ struct ankerl::unordered_dense::hash<string_slice_t>
 };
 
 inline
-bool fuzzy_char_compare(std::string_view value, size_t& index, const char c)
+uint8_t ascii_to_lower(uint8_t c) {
+    return c + (uint8_t((c >= 65) && (c <= 90)) << 5);
+}
+
+inline
+bool utf8_case_insensitive_char_compare(std::string_view value, size_t& index, const char c)
 {
     char n = value[index];
     if (n > 127) {
         index += n < 224 ? 1 : n < 240 ? 2 : 3;
         n = '?';
     } else {
-        n = char(std::tolower(n));
+        n = ascii_to_lower(n);
     }
 
     return n == c;
 }
 
 inline
-bool fuzzy_contains(std::string_view value, std::string_view str)
+bool utf8_case_insensitive_contains(std::string_view value, std::string_view str)
 {
     const size_t value_count = value.length();
     const size_t str_count = str.length();
@@ -79,8 +84,8 @@ bool fuzzy_contains(std::string_view value, std::string_view str)
     const size_t max = value_count - str_count;
 
     for (size_t i = 0; i <= max; ++i) {
-        if (!fuzzy_char_compare(value, i, first)) {
-            while (++i <= max && !fuzzy_char_compare(value, i, first));
+        if (!utf8_case_insensitive_char_compare(value, i, first)) {
+            while (++i <= max && !utf8_case_insensitive_char_compare(value, i, first));
         }
 
         if (i <= max) {
@@ -88,7 +93,7 @@ bool fuzzy_contains(std::string_view value, std::string_view str)
             const size_t true_end = j + str_count - 1;
             const size_t end = (value_count > true_end) ? true_end : value_count;
             for (size_t k = 1
-                ; j < end && fuzzy_char_compare(value, j, str[k])
+                ; j < end && utf8_case_insensitive_char_compare(value, j, str[k])
                 ; ++j, ++k);
 
             if (j == true_end)

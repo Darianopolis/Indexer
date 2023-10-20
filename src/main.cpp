@@ -41,14 +41,21 @@ int main(int argc, char* argv[])
 
     // Find "program" in all files
 
-    std::string_view needle;
+    uint32_t keywords_len = 0;
+    std::vector<std::string_view> keywords;
     if (auto _needle = std::ranges::find(args, "--find"); _needle == args.end()) {
         std::cout << "Missing keyword, use --find\n";
         return 1;
     } else {
-        needle = *(_needle + 1);
+        for (_needle++; _needle != args.end() && !_needle->starts_with("--"); _needle++) {
+            keywords.emplace_back(*_needle);
+            keywords_len += uint32_t(_needle->size());
+        }
     }
-    std::cout << std::format("Searching for: \"{}\"\n", needle);
+    std::cout << "Searching for keywords:\n";
+    for (auto keyword : keywords) {
+        std::cout << std::format(" - {}\n", keyword);
+    }
     std::vector<uint8_t> matches(index.string_offsets.size() - 1);
 
     start = steady_clock::now();
@@ -71,6 +78,20 @@ int main(int argc, char* argv[])
         nova::BufferUsage::Storage, nova::BufferFlags::DeviceLocal | nova::BufferFlags::Mapped);
     string_offset_buf.Set<uint32_t>(index.string_offsets);
 
+    auto keyword_buf = nova::Buffer::Create(context, keywords_len,
+        nova::BufferUsage::Storage, nova::BufferFlags::DeviceLocal | nova::BufferFlags::Mapped);
+    auto keyword_offset_buf = nova::Buffer::Create(context, (keywords.size() + 1) * sizeof(uint32_t),
+        nova::BufferUsage::Storage, nova::BufferFlags::DeviceLocal | nova::BufferFlags::Mapped);
+    {
+        uint32_t keyword_offset = 0;
+        for (uint32_t i = 0; i < keywords.size(); ++i) {
+            keyword_buf.Set<char>({ keywords[i].data(), keywords[i].size() }, 0, keyword_offset);
+            keyword_offset_buf.Set<uint32_t>({ keyword_offset }, i);
+            keyword_offset += uint32_t(keywords[i].size());
+        }
+        keyword_offset_buf.Set<uint32_t>({ keyword_offset }, keywords.size());
+    }
+
     auto match_mask_buf = nova::Buffer::Create(context, index.string_offsets.size() - 1,
         nova::BufferUsage::Storage, nova::BufferFlags::DeviceLocal | nova::BufferFlags::Mapped);
     auto match_mask_buf_host = nova::Buffer::Create(context, index.string_offsets.size() - 1,
@@ -91,17 +112,19 @@ int main(int argc, char* argv[])
             uint64_t string_data_address;
             uint64_t string_offsets_address;
             uint64_t match_output_address;
+            uint64_t keywords_address;
+            uint64_t keyword_offset_address;
             uint32_t string_count;
-            uint32_t needle_length;
-            char     needle[32];
+            uint32_t keyword_count;
         } push_constants;
 
         push_constants.string_data_address = string_data_buf.GetAddress();
         push_constants.string_offsets_address = string_offset_buf.GetAddress();
         push_constants.match_output_address = match_mask_buf.GetAddress();
+        push_constants.keywords_address = keyword_buf.GetAddress();
+        push_constants.keyword_offset_address = keyword_offset_buf.GetAddress();
         push_constants.string_count = u32(index.string_offsets.size() - 1);
-        push_constants.needle_length = u32(needle.length());
-        std::memcpy(push_constants.needle, needle.data(), needle.length());
+        push_constants.keyword_count = u32(keywords.size());
 
         auto cmd = pool.Begin();
         cmd.BindShaders({ shader });
@@ -121,7 +144,7 @@ int main(int argc, char* argv[])
 
         uint32_t match_count = 0;
         for (uint32_t j = 0; j < index.string_offsets.size() - 1; ++j) {
-            if (match_mask_buf_host.Get<u8>(j) == 1) {
+            if (match_mask_buf_host.Get<u8>(j)) {
                 match_count++;
             }
         }
@@ -138,15 +161,21 @@ int main(int argc, char* argv[])
 
 #pragma omp parallel for
     for (uint32_t i = 0; i < index.string_offsets.size() - 1; ++i) {
-        if (fuzzy_contains(index.get_string(i), needle))
-            matches[i] = 1;
+        matches[i] = 0;
+    }
+    for (uint32_t j = 0; j < keywords.size(); ++j) {
+#pragma omp parallel for
+        for (uint32_t i = 0; i < index.string_offsets.size() - 1; ++i) {
+            if (utf8_case_insensitive_contains(index.get_string(i), keywords[j]))
+                matches[i] |= 1 << j;
+        }
     }
 
     end = steady_clock::now();
 
     uint32_t match_count = 0;
     for (uint32_t i = 0; i  < index.string_offsets.size() - 1; ++i) {
-        if (matches[i]) {
+        if (matches[i] != 0) {
             if (match_count < 10) {
                 std::cout << " - " << index.get_string(i) << '\n';
             }

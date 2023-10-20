@@ -12,7 +12,7 @@ layout(buffer_reference, scalar, buffer_reference_align = 4) readonly buffer str
     uint offset;
 };
 
-layout(buffer_reference, scalar, buffer_reference_align = 1) writeonly buffer match_output_br
+layout(buffer_reference, scalar, buffer_reference_align = 1) buffer match_output_br
 {
     uint8_t mask;
 };
@@ -22,9 +22,10 @@ layout(push_constant, scalar) uniform push_constants_t
     string_data_br    string_data;
     string_offsets_br string_offsets;
     match_output_br   match_output;
+    string_data_br    keywords;
+    string_offsets_br keyword_offsets;
     uint              string_count;
-    uint              needle_length;
-    uint8_t           needle[32];
+    uint              keyword_count;
 };
 
 uint8_t to_lower(uint8_t c) {
@@ -51,42 +52,50 @@ void main()
     if (str_index >= string_count)
         return;
 
-    const uint value_begin = string_offsets[str_index].offset;
-    const uint value_end = string_offsets[str_index + 1].offset;
+    match_output[str_index].mask = uint8_t(0);
 
-    const uint value_count = value_end - value_begin;
-    const uint str_count = needle_length;
+    for (uint i = 0; i < 2; ++i) {
 
-    bool found = false;
-    if (str_count > value_count) {
-        /* found = false; */
-    } else if (str_count == 0) {
-        found = true;
-    } else {
+        const uint keyword_begin = keyword_offsets[i].offset;
+        const uint keyword_end = keyword_offsets[i + 1].offset;
 
-        const uint8_t first = needle[0];
-        const uint max_count = value_count - str_count;
+        const uint value_begin = string_offsets[str_index].offset;
+        const uint value_end = string_offsets[str_index + 1].offset;
 
-        for (uint i = 0; i <= max_count; ++i) {
-            if (!fuzzy_char_compare(value_begin, i, first)) {
-                while (++i <= max_count && !fuzzy_char_compare(value_begin, i, first));
-            }
+        const uint value_count = value_end - value_begin;
+        const uint str_count = keyword_end - keyword_begin;
 
-            if (i <= max_count) {
-                uint j = i + 1;
-                const uint true_end = j + str_count - 1;
-                const uint end = (value_count > true_end) ? true_end : value_count;
-                for (uint k = 1
-                    ; j < end && fuzzy_char_compare(value_begin, j, needle[k])
-                    ; ++j, ++k);
+        bool found = false;
+        if (str_count > value_count) {
+            /* found = false; */
+        } else if (str_count == 0) {
+            found = true;
+        } else {
 
-                if (j == true_end) {
-                    found = true;
-                    break;
+            const uint8_t first = keywords[keyword_begin].character;
+            const uint max_count = value_count - str_count;
+
+            for (uint i = 0; i <= max_count; ++i) {
+                if (!fuzzy_char_compare(value_begin, i, first)) {
+                    while (++i <= max_count && !fuzzy_char_compare(value_begin, i, first));
+                }
+
+                if (i <= max_count) {
+                    uint j = i + 1;
+                    const uint true_end = j + str_count - 1;
+                    const uint end = (value_count > true_end) ? true_end : value_count;
+                    for (uint k = 1
+                        ; j < end && fuzzy_char_compare(value_begin, j, keywords[keyword_begin + k].character)
+                        ; ++j, ++k);
+
+                    if (j == true_end) {
+                        found = true;
+                        break;
+                    }
                 }
             }
         }
-    }
 
-    match_output[str_index].mask = uint8_t(found);
+        match_output[str_index].mask |= uint8_t(found) << i;
+    }
 }
