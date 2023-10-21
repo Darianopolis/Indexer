@@ -60,6 +60,8 @@ int main(int argc, char* argv[])
     }
     std::vector<uint8_t> matches(index.string_offsets.size() - 1);
 
+    // Configure Nova RHI
+
     start = steady_clock::now();
 
     auto context = nova::Context::Create({
@@ -69,8 +71,14 @@ int main(int argc, char* argv[])
     auto pool = nova::CommandPool::Create(context, queue);
     auto fence = nova::Fence::Create(context);
 
-    auto shader = nova::Shader::Create(context, nova::ShaderStage::Compute, "main",
+    auto search_shader = nova::Shader::Create(context, nova::ShaderStage::Compute, "main",
         nova::glsl::Compile(nova::ShaderStage::Compute, "main", "src/string_search.glsl"));
+    auto collate_shader = nova::Shader::Create(context, nova::ShaderStage::Compute, "main",
+        nova::glsl::Compile(nova::ShaderStage::Compute, "main", "src/node_collate.glsl"));
+
+    auto file_node_buf = nova::Buffer::Create(context, index.file_nodes.size() * sizeof(file_node_t),
+        nova::BufferUsage::Storage, nova::BufferFlags::DeviceLocal | nova::BufferFlags::Mapped);
+    file_node_buf.Set<file_node_t>(index.file_nodes);
 
     auto string_data_buf = nova::Buffer::Create(context, index.string_data.size(),
         nova::BufferUsage::Storage, nova::BufferFlags::DeviceLocal | nova::BufferFlags::Mapped);
@@ -94,9 +102,14 @@ int main(int argc, char* argv[])
         keyword_offset_buf.Set<uint32_t>({ keyword_offset }, keywords.size());
     }
 
-    auto match_mask_buf = nova::Buffer::Create(context, index.string_offsets.size() - 1,
+    auto name_match_mask_buf = nova::Buffer::Create(context, index.string_offsets.size() - 1,
         nova::BufferUsage::Storage, nova::BufferFlags::DeviceLocal | nova::BufferFlags::Mapped);
-    auto match_mask_buf_host = nova::Buffer::Create(context, index.string_offsets.size() - 1,
+    // auto name_match_mask_buf_host = nova::Buffer::Create(context, index.string_offsets.size() - 1,
+    //     nova::BufferUsage::Storage, nova::BufferFlags::Mapped);
+
+    auto file_match_mask_buf = nova::Buffer::Create(context, index.file_nodes.size(),
+        nova::BufferUsage::Storage, nova::BufferFlags::DeviceLocal | nova::BufferFlags::Mapped);
+    auto file_match_mask_buf_host = nova::Buffer::Create(context, index.file_nodes.size(),
         nova::BufferUsage::Storage, nova::BufferFlags::Mapped);
 
     end = steady_clock::now();
@@ -107,13 +120,15 @@ int main(int argc, char* argv[])
     ankerl::unordered_dense::set<std::string> results;
     std::vector<std::string> diff;
 
-    for (uint32_t i = 0; i < 3; ++i) {
+    // Run search on GPU
+
+    for (uint32_t i = 0; i < 4; ++i) {
 
         start = steady_clock::now();
 
         pool.Reset();
 
-        struct push_constants_t {
+        struct search_push_constants_t {
             uint64_t string_data_address;
             uint64_t string_offsets_address;
             uint64_t match_output_address;
@@ -121,47 +136,72 @@ int main(int argc, char* argv[])
             uint64_t keyword_offset_address;
             uint32_t string_count;
             uint32_t keyword_count;
-        } push_constants;
+        } search_pcs;
 
-        push_constants.string_data_address = string_data_buf.GetAddress();
-        push_constants.string_offsets_address = string_offset_buf.GetAddress();
-        push_constants.match_output_address = match_mask_buf.GetAddress();
-        push_constants.keywords_address = keyword_buf.GetAddress();
-        push_constants.keyword_offset_address = keyword_offset_buf.GetAddress();
-        push_constants.string_count = u32(index.string_offsets.size() - 1);
-        push_constants.keyword_count = u32(keywords.size());
+        search_pcs.string_data_address = string_data_buf.GetAddress();
+        search_pcs.string_offsets_address = string_offset_buf.GetAddress();
+        search_pcs.match_output_address = name_match_mask_buf.GetAddress();
+        search_pcs.keywords_address = keyword_buf.GetAddress();
+        search_pcs.keyword_offset_address = keyword_offset_buf.GetAddress();
+        search_pcs.string_count = uint32_t(index.string_offsets.size() - 1);
+        search_pcs.keyword_count = uint32_t(keywords.size());
 
         auto cmd = pool.Begin();
-        cmd.BindShaders({ shader });
-        cmd.PushConstants(push_constants);
-        constexpr uint32_t workgroupSize = 128;
-        constexpr uint32_t repeats = 1;
+        cmd.BindShaders({ search_shader });
+        cmd.PushConstants(search_pcs);
+        constexpr uint32_t workgroup_size = 128;
         cmd.Dispatch(Vec3U(
-            (push_constants.string_count + workgroupSize - 1) / workgroupSize,
-            repeats, 1));
+            (search_pcs.string_count + workgroup_size - 1) / workgroup_size,
+            1, 1));
+        // cmd.Barrier(nova::PipelineStage::Compute, nova::PipelineStage::Transfer);
+        // cmd.CopyToBuffer(name_match_mask_buf_host, name_match_mask_buf, index.string_offsets.size() - 1);
+
+        struct collate_push_constants_t {
+            uint64_t match_mask_in;
+            uint64_t nodes;
+            uint64_t match_mask_out;
+            uint32_t node_count;
+            uint32_t target_mask;
+        } collate_pcs;
+
+        collate_pcs.match_mask_in = name_match_mask_buf.GetAddress();
+        collate_pcs.nodes = file_node_buf.GetAddress();
+        collate_pcs.match_mask_out = file_match_mask_buf.GetAddress();
+        collate_pcs.node_count = uint32_t(index.file_nodes.size());
+        collate_pcs.target_mask = (1 << keywords.size()) - 1;
+
+        cmd.BindShaders({ collate_shader });
+        cmd.PushConstants(collate_pcs);
+        cmd.Barrier(nova::PipelineStage::Compute, nova::PipelineStage::Compute);
+        cmd.Dispatch(Vec3U(
+            (collate_pcs.node_count + workgroup_size - 1) / workgroup_size,
+            1, 1));
         cmd.Barrier(nova::PipelineStage::Compute, nova::PipelineStage::Transfer);
-        cmd.CopyToBuffer(match_mask_buf_host, match_mask_buf, index.string_offsets.size() - 1);
+        cmd.CopyToBuffer(file_match_mask_buf_host, file_match_mask_buf, index.file_nodes.size());
 
         queue.Submit({cmd}, {}, {fence});
         fence.Wait();
 
-        end = steady_clock::now();
-
-        uint32_t match_count = 0;
-        for (uint32_t j = 0; j < index.string_offsets.size() - 1; ++j) {
-            if (match_mask_buf_host.Get<u8>(j)) {
-                match_count++;
-                results.insert(std::string(index.get_string(j)));
+        uint32_t file_count = 0;
+        {
+            const uint8_t* mask = reinterpret_cast<const uint8_t*>(file_match_mask_buf_host.GetMapped());
+            const uint32_t s = uint32_t(index.file_nodes.size());
+            for (uint32_t j = 0; j < s; ++j) {
+                file_count += mask[j];
             }
         }
 
+        end = steady_clock::now();
+
         if (i > 0) {
-            std::cout << std::format("GPU found {} results in: {} ms ({} us)\n",
-                match_count,
+            std::cout << std::format("GPU found {} files in: {} ms ({} us)\n",
+                file_count,
                 duration_cast<milliseconds>(end - start).count(),
                 duration_cast<microseconds>(end - start).count());
         }
     }
+
+    // Run search on CPU
 
     start = steady_clock::now();
 
@@ -176,26 +216,6 @@ int main(int argc, char* argv[])
                 matches[i] |= 1 << j;
             }
         }
-    }
-    for (uint32_t i = 0; i < index.string_offsets.size() - 1; ++i) {
-        if (matches[i] != 0) {
-            auto filename = std::string(index.get_string(i));
-            if (!results.contains(filename)) {
-                diff.emplace_back(filename);
-            } else {
-                results.erase(filename);
-            }
-        }
-    }
-
-    if (!results.empty() || !diff.empty()) {
-        for (auto& on_gpu : results) {
-            std::cout << std::format("ERROR[gpu only]: {}\n", on_gpu);
-        }
-        for (auto& on_host : diff) {
-            std::cout << std::format("ERROR[cpu only]: {}\n", on_host);
-        }
-        return 1;
     }
 
     end = steady_clock::now();
@@ -215,7 +235,68 @@ int main(int argc, char* argv[])
         duration_cast<milliseconds>(end - start).count(),
         (index.string_offsets.size() - 1) / duration_cast<duration<float>>(end - start).count());
 
-    // Basic statistics over string data
+    // Check for GPU / CPU differences
+
+    // for (uint32_t i = 0; i < index.string_offsets.size() - 1; ++i) {
+    //     if (matches[i] != 0) {
+    //         auto filename = std::string(index.get_string(i));
+    //         if (!results.contains(filename)) {
+    //             diff.emplace_back(filename);
+    //         } else {
+    //             results.erase(filename);
+    //         }
+    //     }
+    // }
+
+    // if (!results.empty() || !diff.empty()) {
+    //     for (auto& on_gpu : results) {
+    //         std::cout << std::format("ERROR[gpu only]: {}\n", on_gpu);
+    //     }
+    //     for (auto& on_host : diff) {
+    //         std::cout << std::format("ERROR[cpu only]: {}\n", on_host);
+    //     }
+    //     return 1;
+    // }
+
+    {
+        // Find matching file nodes
+
+        uint32_t target_mask = (1 << keywords.size()) - 1;
+
+        std::cout << std::format("Target mask: {:#010b}\n", target_mask);
+
+        start = steady_clock::now();
+
+        uint32_t file_count = 0;
+        for (uint32_t i = 0; i < index.file_nodes.size(); ++i) {
+            auto file = index.file_nodes[i];
+            uint32_t mask = 0;
+            for (;;) {
+                mask |= matches[file.filename];
+                if (mask == target_mask)
+                    break;
+
+                if (file.parent == UINT_MAX)
+                    break;
+                file = index.file_nodes[file.parent];
+            }
+
+            if (mask == target_mask) {
+                if (file_count < 10) {
+                    std::cout << std::format(" - {}\n", index.get_full_path(i));
+                }
+                file_count++;
+            }
+        }
+
+        end = steady_clock::now();
+
+        std::cout << std::format("Counted files (CPU) = {}\n", file_count);
+        std::cout << std::format("  Elapsed: {} ms\n",
+            duration_cast<milliseconds>(end - start).count());
+    }
+
+    // String data stats
 
     uint32_t min_size = UINT_MAX, max_size = 0;
     for (uint32_t i = 0; i < index.string_offsets.size() - 1; ++i) {
