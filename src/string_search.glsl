@@ -28,21 +28,72 @@ layout(push_constant, scalar) uniform push_constants_t
     uint              keyword_count;
 };
 
-uint8_t to_lower(uint8_t c) {
+uint8_t ascii_to_lower(uint8_t c)
+{
     return c + (uint8_t((c >= 65) && (c <= 90)) << 5);
 }
 
-bool fuzzy_char_compare(uint value_begin, inout uint index, uint8_t c)
+bool utf8_case_insensitive_char_compare(uint value_begin, uint index, uint8_t c, out uint out_index)
 {
     uint8_t n = string_data[value_begin + index].character;
     if (n > 127) {
-        index += n < 224 ? 1 : n < 240 ? 2 : 3;
+        out_index = index + (n < 224 ? 1 : (n < 240 ? 2 : 3));
         n = uint8_t(63); // '?'
     } else {
-        n = to_lower(n);
+        out_index = index;
+        n = ascii_to_lower(n);
     }
 
     return n == c;
+}
+
+bool utf8_case_insensitive_contains(uint str_index, uint keyword_index)
+{
+    const uint value_begin = string_offsets[str_index].offset;
+    const uint keyword_begin = keyword_offsets[keyword_index].offset;
+    const uint value_count = string_offsets[str_index + 1].offset - value_begin;
+    const uint str_count = keyword_offsets[keyword_index + 1].offset - keyword_begin;
+
+    uint out_index;
+
+    if (str_count > value_count)
+        return false;
+
+    if (str_count == 0)
+        return true;
+
+    const uint8_t first = keywords[keyword_begin].character;
+    const uint max_index = value_count - str_count;
+
+    for (uint i = 0; i <= max_index; ++i) {
+        if (!utf8_case_insensitive_char_compare(value_begin, i, first, out_index)) {
+            i = out_index;
+            while (++i <= max_index
+                    && !utf8_case_insensitive_char_compare(value_begin, i, first, out_index)) {
+                i = out_index;
+            }
+        } else {
+            i = out_index;
+        }
+
+        if (i <= max_index) {
+            uint j = i + 1;
+            const uint true_end = j + str_count - 1;
+            const uint end = (value_count > true_end) ? true_end : value_count;
+            for (uint k = 1
+                    ; j < end
+                        && utf8_case_insensitive_char_compare(value_begin, j,
+                            keywords[keyword_begin + k].character, out_index)
+                    ; ++j, ++k) {
+                j = out_index;
+            }
+
+            if (j == true_end)
+                return true;
+        }
+    }
+
+    return false;
 }
 
 layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
@@ -52,50 +103,12 @@ void main()
     if (str_index >= string_count)
         return;
 
-    match_output[str_index].mask = uint8_t(0);
+    uint mask = 0;
 
-    for (uint i = 0; i < 2; ++i) {
-
-        const uint keyword_begin = keyword_offsets[i].offset;
-        const uint keyword_end = keyword_offsets[i + 1].offset;
-
-        const uint value_begin = string_offsets[str_index].offset;
-        const uint value_end = string_offsets[str_index + 1].offset;
-
-        const uint value_count = value_end - value_begin;
-        const uint str_count = keyword_end - keyword_begin;
-
-        bool found = false;
-        if (str_count > value_count) {
-            /* found = false; */
-        } else if (str_count == 0) {
-            found = true;
-        } else {
-
-            const uint8_t first = keywords[keyword_begin].character;
-            const uint max_count = value_count - str_count;
-
-            for (uint i = 0; i <= max_count; ++i) {
-                if (!fuzzy_char_compare(value_begin, i, first)) {
-                    while (++i <= max_count && !fuzzy_char_compare(value_begin, i, first));
-                }
-
-                if (i <= max_count) {
-                    uint j = i + 1;
-                    const uint true_end = j + str_count - 1;
-                    const uint end = (value_count > true_end) ? true_end : value_count;
-                    for (uint k = 1
-                        ; j < end && fuzzy_char_compare(value_begin, j, keywords[keyword_begin + k].character)
-                        ; ++j, ++k);
-
-                    if (j == true_end) {
-                        found = true;
-                        break;
-                    }
-                }
-            }
-        }
-
-        match_output[str_index].mask |= uint8_t(found) << i;
+    for (uint i = 0; i < keyword_count; ++i) {
+        const bool found = utf8_case_insensitive_contains(str_index, i);
+        mask |= uint(found) << i;
     }
+
+    match_output[str_index].mask = uint8_t(mask);
 }

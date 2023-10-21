@@ -13,6 +13,8 @@ using namespace nova::types;
 
 int main(int argc, char* argv[])
 {
+    SetConsoleOutputCP(CP_UTF8);
+
     std::vector<std::string_view> args{ argv, argv + argc };
 
     using namespace std::chrono;
@@ -102,6 +104,9 @@ int main(int argc, char* argv[])
     std::cout << std::format("Vulkan initialized in: {} ms\n",
         duration_cast<milliseconds>(end - start).count());
 
+    ankerl::unordered_dense::set<std::string> results;
+    std::vector<std::string> diff;
+
     for (uint32_t i = 0; i < 3; ++i) {
 
         start = steady_clock::now();
@@ -146,6 +151,7 @@ int main(int argc, char* argv[])
         for (uint32_t j = 0; j < index.string_offsets.size() - 1; ++j) {
             if (match_mask_buf_host.Get<u8>(j)) {
                 match_count++;
+                results.insert(std::string(index.get_string(j)));
             }
         }
 
@@ -166,9 +172,30 @@ int main(int argc, char* argv[])
     for (uint32_t j = 0; j < keywords.size(); ++j) {
 #pragma omp parallel for
         for (uint32_t i = 0; i < index.string_offsets.size() - 1; ++i) {
-            if (utf8_case_insensitive_contains(index.get_string(i), keywords[j]))
+            if (utf8_case_insensitive_contains(index.get_string(i), keywords[j])) {
                 matches[i] |= 1 << j;
+            }
         }
+    }
+    for (uint32_t i = 0; i < index.string_offsets.size() - 1; ++i) {
+        if (matches[i] != 0) {
+            auto filename = std::string(index.get_string(i));
+            if (!results.contains(filename)) {
+                diff.emplace_back(filename);
+            } else {
+                results.erase(filename);
+            }
+        }
+    }
+
+    if (!results.empty() || !diff.empty()) {
+        for (auto& on_gpu : results) {
+            std::cout << std::format("ERROR[gpu only]: {}\n", on_gpu);
+        }
+        for (auto& on_host : diff) {
+            std::cout << std::format("ERROR[cpu only]: {}\n", on_host);
+        }
+        return 1;
     }
 
     end = steady_clock::now();

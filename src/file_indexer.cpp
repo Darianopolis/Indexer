@@ -80,8 +80,9 @@ void search_dir(indexer_t& indexer, size_t offset, uint32_t parent)
         nullptr,
         FIND_FIRST_EX_LARGE_FETCH);
 
-    if (find_handle == INVALID_HANDLE_VALUE)
+    if (find_handle == INVALID_HANDLE_VALUE) {
         return;
+    }
 
     do {
         size_t len = wcslen(indexer.result.cFileName);
@@ -119,7 +120,7 @@ void search_dir(indexer_t& indexer, size_t offset, uint32_t parent)
             indexer.index->file_nodes.emplace_back(parent, string_offset_index);
         }
 
-        if (++indexer.count % 10'000 == 0) {
+        if (++indexer.count % 100'000 == 0) {
             std::wcout << std::format(L"  File[{}]: {:.{}s}{}\n",
                 indexer.count, indexer.path, offset + 1, indexer.result.cFileName);
         }
