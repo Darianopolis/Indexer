@@ -26,9 +26,12 @@ int main(int argc, char* argv[])
 
     if (std::ranges::find(args, "--generate") != args.end()) {
         index_filesystem(index);
+        sort_index(index);
         save_index(index, "index.bin");
     } else {
         load_index(index, "index.bin");
+        sort_index(index);
+        save_index(index, "index.bin");
     }
 
     auto end = steady_clock::now();
@@ -203,15 +206,14 @@ int main(int argc, char* argv[])
     //     }
     // }
 
-    file_searcher_t searcher;
-    searcher.init(context, context.GetQueue(nova::QueueFlags::Compute, 0));
-    NOVA_CLEANUP(&) { searcher.destroy(); };
-    searcher.set_index(index);
-    searcher.set_index(index);
-    for (auto keyword : { "test", "test", "alpha", "foo", "bar", ".txt", ".gltf", ".txt", ".fbx", ".exe" }) {
-        searcher.filter({ keyword });
-    }
-    searcher.filter({ "test", "alpha", "foo", "bar", ".txt", ".gltf", ".txt", ".fbx" });
+    // file_searcher_t searcher;
+    // searcher.init(context, context.GetQueue(nova::QueueFlags::Compute, 0));
+    // NOVA_CLEANUP(&) { searcher.destroy(); };
+    // searcher.set_index(index);
+    // searcher.set_index(index);
+    // for (uint32_t i = 0; i < 3; ++i) {
+    //     searcher.filter(keywords);
+    // }
 
     // Run search on CPU
 
@@ -317,4 +319,8 @@ int main(int argc, char* argv[])
         max_size = std::max(max_size, size);
     }
     std::cout << std::format("String size: Avg = {:.2f}, Min = {}, Max = {}\n", double(index.string_data.size()) / (index.string_offsets.size() - 1), min_size, max_size);
+
+    for (u32 i = 0; i < 100; ++i) {
+        std::cout << std::format(" - {}\n", index.get_full_path(i));
+    }
 }

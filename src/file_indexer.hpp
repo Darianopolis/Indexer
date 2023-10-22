@@ -38,3 +38,4 @@ void save_index(const index_t& index, const char* path);
 void load_index(index_t& index, const char* path);
 
 void index_filesystem(index_t& index);
+void sort_index(index_t& index);

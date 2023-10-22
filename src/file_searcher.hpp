@@ -34,6 +34,7 @@ public:
     void set_index(index_t& index);
     void filter(nova::Span<std::string_view> keywords);
 
+    bool is_matched(uint32_t index);
     uint32_t find_next_file(uint32_t index);
     uint32_t find_prev_file(uint32_t index);
 };

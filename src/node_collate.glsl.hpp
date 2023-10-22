@@ -1,3 +1,8 @@
+#pragma once
+#include <string>
+using namespace std::literals;
+constexpr std::string_view s_collate_shader_glsl = R"glsl(
+
 #extension GL_EXT_buffer_reference2                     : require
 #extension GL_EXT_scalar_block_layout                   : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
@@ -44,3 +49,5 @@ void main()
 
     match_mask_out[node_index].mask = uint8_t(mask == target_mask);
 }
+
+)glsl"sv;

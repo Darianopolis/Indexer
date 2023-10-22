@@ -2,6 +2,9 @@
 
 #include <nova/rhi/vulkan/glsl/nova_VulkanGlsl.hpp>
 
+#include "node_collate.glsl.hpp"
+#include "string_search.glsl.hpp"
+
 using namespace nova::types;
 
 void file_searcher_t::init(nova::Context _context, nova::Queue _queue)
@@ -12,9 +15,9 @@ void file_searcher_t::init(nova::Context _context, nova::Queue _queue)
     fence = nova::Fence::Create(context);
 
     search_shader = nova::Shader::Create(context, nova::ShaderStage::Compute, "main",
-        nova::glsl::Compile(nova::ShaderStage::Compute, "main", "src/string_search.glsl"));
+        nova::glsl::Compile(nova::ShaderStage::Compute, "main", "string_search", { s_string_search_shader_glsl }));
     collate_shader = nova::Shader::Create(context, nova::ShaderStage::Compute, "main",
-        nova::glsl::Compile(nova::ShaderStage::Compute, "main", "src/node_collate.glsl"));
+        nova::glsl::Compile(nova::ShaderStage::Compute, "main", "collate_shader", { s_collate_shader_glsl }));
 
     file_node_buf = nova::Buffer::Create(context, 0,
         nova::BufferUsage::Storage, nova::BufferFlags::DeviceLocal | nova::BufferFlags::Mapped);
@@ -169,7 +172,14 @@ void file_searcher_t::filter(nova::Span<std::string_view> keywords)
         }
     }
 
-    std::cout << "Found " << file_count << " files for \"" << keywords[0] << "\" in " << dur << " us\n";
+    std::cout << "Found " << file_count << " files in " << dur << " us\n";
+}
+
+bool file_searcher_t::is_matched(uint32_t i)
+{
+    if (i == UINT_MAX)
+        return false;
+    return reinterpret_cast<const uint8_t*>(file_match_mask_buf_host.GetMapped())[i];
 }
 
 uint32_t file_searcher_t::find_next_file(uint32_t i)
