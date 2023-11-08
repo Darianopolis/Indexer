@@ -97,7 +97,11 @@ void file_searcher_t::filter(nova::Span<std::string_view> keywords)
 
     uint32_t keyword_offset = 0;
     for (uint32_t i = 0; i < keywords.size(); ++i) {
-        keyword_buf.Set<char>({ keywords[i].data(), keywords[i].size() }, 0, keyword_offset);
+        auto& keyword = keywords[i];
+        char* buf = (char*)(keyword_buf.GetMapped() + keyword_offset);
+        for (uint32_t j = 0; j < keyword.size(); ++j) {
+            buf[j] = char(std::tolower(keyword[j]));
+        }
         keyword_offset_buf.Set<uint32_t>({ keyword_offset }, i);
         keyword_offset += uint32_t(keywords[i].size());
     }
