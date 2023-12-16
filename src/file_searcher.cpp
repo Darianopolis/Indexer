@@ -1,7 +1,5 @@
 #include "file_searcher.hpp"
 
-#include <nova/rhi/vulkan/glsl/nova_VulkanGlsl.hpp>
-
 #include "node_collate.glsl.hpp"
 #include "string_search.glsl.hpp"
 
@@ -14,10 +12,8 @@ void file_searcher_t::init(nova::Context _context, nova::Queue _queue)
     pool = nova::CommandPool::Create(context, queue);
     fence = nova::Fence::Create(context);
 
-    search_shader = nova::Shader::Create(context, nova::ShaderStage::Compute, "main",
-        nova::glsl::Compile(nova::ShaderStage::Compute, "main", "string_search", { s_string_search_shader_glsl }));
-    collate_shader = nova::Shader::Create(context, nova::ShaderStage::Compute, "main",
-        nova::glsl::Compile(nova::ShaderStage::Compute, "main", "collate_shader", { s_collate_shader_glsl }));
+    search_shader = nova::Shader::Create(context, nova::ShaderLang::Glsl, nova::ShaderStage::Compute, "main", "string_search", { s_string_search_shader_glsl });
+    collate_shader = nova::Shader::Create(context, nova::ShaderLang::Glsl, nova::ShaderStage::Compute, "main", "collate_shader", { s_collate_shader_glsl });
 
     file_node_buf = nova::Buffer::Create(context, 0,
         nova::BufferUsage::Storage, nova::BufferFlags::DeviceLocal | nova::BufferFlags::Mapped);
