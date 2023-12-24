@@ -94,7 +94,7 @@ void file_searcher_t::filter(nova::Span<std::string_view> keywords)
     uint32_t keyword_offset = 0;
     for (uint32_t i = 0; i < keywords.size(); ++i) {
         auto& keyword = keywords[i];
-        char* buf = (char*)(keyword_buf.GetMapped() + keyword_offset);
+        char* buf = (char*)(keyword_buf.HostAddress() + keyword_offset);
         for (uint32_t j = 0; j < keyword.size(); ++j) {
             buf[j] = char(std::tolower(keyword[j]));
         }
@@ -117,11 +117,11 @@ void file_searcher_t::filter(nova::Span<std::string_view> keywords)
         uint32_t keyword_count;
     } search_pcs;
 
-    search_pcs.string_data_address = string_data_buf.GetAddress();
-    search_pcs.string_offsets_address = string_offset_buf.GetAddress();
-    search_pcs.match_output_address = string_match_mask_buf.GetAddress();
-    search_pcs.keywords_address = keyword_buf.GetAddress();
-    search_pcs.keyword_offset_address = keyword_offset_buf.GetAddress();
+    search_pcs.string_data_address = string_data_buf.DeviceAddress();
+    search_pcs.string_offsets_address = string_offset_buf.DeviceAddress();
+    search_pcs.match_output_address = string_match_mask_buf.DeviceAddress();
+    search_pcs.keywords_address = keyword_buf.DeviceAddress();
+    search_pcs.keyword_offset_address = keyword_offset_buf.DeviceAddress();
     search_pcs.string_count = uint32_t(index->string_offsets.size() - 1);
     search_pcs.keyword_count = uint32_t(keywords.size());
 
@@ -133,9 +133,9 @@ void file_searcher_t::filter(nova::Span<std::string_view> keywords)
         uint32_t target_mask;
     } collate_pcs;
 
-    collate_pcs.match_mask_in = string_match_mask_buf.GetAddress();
-    collate_pcs.nodes = file_node_buf.GetAddress();
-    collate_pcs.match_mask_out = file_match_mask_buf.GetAddress();
+    collate_pcs.match_mask_in = string_match_mask_buf.DeviceAddress();
+    collate_pcs.nodes = file_node_buf.DeviceAddress();
+    collate_pcs.match_mask_out = file_match_mask_buf.DeviceAddress();
     collate_pcs.node_count = uint32_t(index->file_nodes.size());
     collate_pcs.target_mask = (1 << keywords.size()) - 1;
 
@@ -165,7 +165,7 @@ void file_searcher_t::filter(nova::Span<std::string_view> keywords)
 
     uint32_t file_count = 0;
     {
-        const uint8_t* mask = reinterpret_cast<const uint8_t*>(file_match_mask_buf_host.GetMapped());
+        const uint8_t* mask = reinterpret_cast<const uint8_t*>(file_match_mask_buf_host.HostAddress());
         const uint32_t s = uint32_t(index->file_nodes.size());
         for (uint32_t j = 0; j < s; ++j) {
             file_count += mask[j];
@@ -179,13 +179,13 @@ bool file_searcher_t::is_matched(uint32_t i)
 {
     if (i == UINT_MAX)
         return false;
-    return reinterpret_cast<const uint8_t*>(file_match_mask_buf_host.GetMapped())[i];
+    return reinterpret_cast<const uint8_t*>(file_match_mask_buf_host.HostAddress())[i];
 }
 
 uint32_t file_searcher_t::find_next_file(uint32_t i)
 {
     const uint32_t size = uint32_t(index->file_nodes.size());
-    const uint8_t* mask = reinterpret_cast<const uint8_t*>(file_match_mask_buf_host.GetMapped());
+    const uint8_t* mask = reinterpret_cast<const uint8_t*>(file_match_mask_buf_host.HostAddress());
     while (++i < size) {
         if (mask[i]) {
             return i;
@@ -198,7 +198,7 @@ uint32_t file_searcher_t::find_prev_file(uint32_t i)
 {
     if (i == UINT_MAX)
         i = uint32_t(index->file_nodes.size());
-    const uint8_t* mask = reinterpret_cast<const uint8_t*>(file_match_mask_buf_host.GetMapped());
+    const uint8_t* mask = reinterpret_cast<const uint8_t*>(file_match_mask_buf_host.HostAddress());
     while (i > 0) {
         if (mask[--i]) {
             return i;

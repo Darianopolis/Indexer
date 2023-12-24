@@ -143,11 +143,11 @@ int main(int argc, char* argv[])
     //         uint32_t keyword_count;
     //     } search_pcs;
 
-    //     search_pcs.string_data_address = string_data_buf.GetAddress();
-    //     search_pcs.string_offsets_address = string_offset_buf.GetAddress();
-    //     search_pcs.match_output_address = name_match_mask_buf.GetAddress();
-    //     search_pcs.keywords_address = keyword_buf.GetAddress();
-    //     search_pcs.keyword_offset_address = keyword_offset_buf.GetAddress();
+    //     search_pcs.string_data_address = string_data_buf.DeviceAddress();
+    //     search_pcs.string_offsets_address = string_offset_buf.DeviceAddress();
+    //     search_pcs.match_output_address = name_match_mask_buf.DeviceAddress();
+    //     search_pcs.keywords_address = keyword_buf.DeviceAddress();
+    //     search_pcs.keyword_offset_address = keyword_offset_buf.DeviceAddress();
     //     search_pcs.string_count = uint32_t(index.string_offsets.size() - 1);
     //     search_pcs.keyword_count = uint32_t(keywords.size());
 
@@ -169,9 +169,9 @@ int main(int argc, char* argv[])
     //         uint32_t target_mask;
     //     } collate_pcs;
 
-    //     collate_pcs.match_mask_in = name_match_mask_buf.GetAddress();
-    //     collate_pcs.nodes = file_node_buf.GetAddress();
-    //     collate_pcs.match_mask_out = file_match_mask_buf.GetAddress();
+    //     collate_pcs.match_mask_in = name_match_mask_buf.DeviceAddress();
+    //     collate_pcs.nodes = file_node_buf.DeviceAddress();
+    //     collate_pcs.match_mask_out = file_match_mask_buf.DeviceAddress();
     //     collate_pcs.node_count = uint32_t(index.file_nodes.size());
     //     collate_pcs.target_mask = (1 << keywords.size()) - 1;
 
@@ -189,7 +189,7 @@ int main(int argc, char* argv[])
 
     //     uint32_t file_count = 0;
     //     {
-    //         const uint8_t* mask = reinterpret_cast<const uint8_t*>(file_match_mask_buf_host.GetMapped());
+    //         const uint8_t* mask = reinterpret_cast<const uint8_t*>(file_match_mask_buf_host.HostAddress());
     //         const uint32_t s = uint32_t(index.file_nodes.size());
     //         for (uint32_t j = 0; j < s; ++j) {
     //             file_count += mask[j];
