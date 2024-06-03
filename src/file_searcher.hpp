@@ -10,8 +10,6 @@ struct file_searcher_t
 
     nova::Context context;
     nova::Queue queue;
-    nova::CommandPool pool;
-    nova::Fence fence;
 
     nova::Shader search_shader;
     nova::Shader collate_shader;

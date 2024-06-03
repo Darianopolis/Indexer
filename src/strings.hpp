@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <string>
 
-#include <nova/core/nova_Containers.hpp>
+#include <nova/core/nova_Core.hpp>
 
 struct string_data_source_t
 {

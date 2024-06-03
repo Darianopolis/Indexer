@@ -2,11 +2,7 @@
 
 #include "core.hpp"
 
-struct file_node_t
-{
-    uint32_t parent;
-    uint32_t filename;
-};
+#include "shared_types.h"
 
 struct index_t
 {

@@ -1,9 +1,7 @@
 if Project "index" then
     Compile "src/**"
     Include "src"
-    Import {
-        "nova",
-    }
+    Import "nova"
 end
 
 if Project "index-test" then

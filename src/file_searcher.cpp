@@ -1,7 +1,5 @@
 #include "file_searcher.hpp"
-
-#include "node_collate.glsl.hpp"
-#include "string_search.glsl.hpp"
+#include "shared_types.h"
 
 using namespace nova::types;
 
@@ -9,33 +7,18 @@ void file_searcher_t::init(nova::Context _context, nova::Queue _queue)
 {
     context = _context;
     queue = _queue;
-    pool = nova::CommandPool::Create(context, queue);
-    fence = nova::Fence::Create(context);
 
-    search_shader = nova::Shader::Create(context, nova::ShaderLang::Glsl, nova::ShaderStage::Compute, "main", "string_search", { s_string_search_shader_glsl });
-    collate_shader = nova::Shader::Create(context, nova::ShaderLang::Glsl, nova::ShaderStage::Compute, "main", "collate_shader", { s_collate_shader_glsl });
+    search_shader  = nova::Shader::Create(context, nova::ShaderLang::Slang, nova::ShaderStage::Compute, "search",  "string_search.slang");
+    collate_shader = nova::Shader::Create(context, nova::ShaderLang::Slang, nova::ShaderStage::Compute, "collate", "node_collate.slang");
 
-    file_node_buf = nova::Buffer::Create(context, 0,
-        nova::BufferUsage::Storage, nova::BufferFlags::DeviceLocal | nova::BufferFlags::Mapped);
-
-    string_data_buf = nova::Buffer::Create(context, 0,
-        nova::BufferUsage::Storage, nova::BufferFlags::DeviceLocal | nova::BufferFlags::Mapped);
-
-    string_offset_buf = nova::Buffer::Create(context, 0,
-        nova::BufferUsage::Storage, nova::BufferFlags::DeviceLocal | nova::BufferFlags::Mapped);
-
-    keyword_buf = nova::Buffer::Create(context, 0,
-        nova::BufferUsage::Storage, nova::BufferFlags::DeviceLocal | nova::BufferFlags::Mapped);
-    keyword_offset_buf = nova::Buffer::Create(context, 0,
-        nova::BufferUsage::Storage, nova::BufferFlags::DeviceLocal | nova::BufferFlags::Mapped);
-
-    string_match_mask_buf = nova::Buffer::Create(context, 0,
-        nova::BufferUsage::Storage, nova::BufferFlags::DeviceLocal | nova::BufferFlags::Mapped);
-
-    file_match_mask_buf = nova::Buffer::Create(context, 0,
-        nova::BufferUsage::Storage, nova::BufferFlags::DeviceLocal | nova::BufferFlags::Mapped);
-    file_match_mask_buf_host = nova::Buffer::Create(context, 0,
-        nova::BufferUsage::Storage, nova::BufferFlags::Mapped);
+    file_node_buf            = nova::Buffer::Create(context, 0, nova::BufferUsage::Storage, nova::BufferFlags::DeviceLocal | nova::BufferFlags::Mapped);
+    string_data_buf          = nova::Buffer::Create(context, 0, nova::BufferUsage::Storage, nova::BufferFlags::DeviceLocal | nova::BufferFlags::Mapped);
+    string_offset_buf        = nova::Buffer::Create(context, 0, nova::BufferUsage::Storage, nova::BufferFlags::DeviceLocal | nova::BufferFlags::Mapped);
+    keyword_buf              = nova::Buffer::Create(context, 0, nova::BufferUsage::Storage, nova::BufferFlags::DeviceLocal | nova::BufferFlags::Mapped);
+    keyword_offset_buf       = nova::Buffer::Create(context, 0, nova::BufferUsage::Storage, nova::BufferFlags::DeviceLocal | nova::BufferFlags::Mapped);
+    string_match_mask_buf    = nova::Buffer::Create(context, 0, nova::BufferUsage::Storage, nova::BufferFlags::DeviceLocal | nova::BufferFlags::Mapped);
+    file_match_mask_buf      = nova::Buffer::Create(context, 0, nova::BufferUsage::Storage, nova::BufferFlags::DeviceLocal | nova::BufferFlags::Mapped);
+    file_match_mask_buf_host = nova::Buffer::Create(context, 0, nova::BufferUsage::Storage, nova::BufferFlags::Mapped);
 }
 
 void file_searcher_t::destroy()
@@ -50,8 +33,6 @@ void file_searcher_t::destroy()
     file_node_buf.Destroy();
     collate_shader.Destroy();
     search_shader.Destroy();
-    fence.Destroy();
-    pool.Destroy();
 }
 
 void file_searcher_t::set_index(index_t& _index)
@@ -105,43 +86,29 @@ void file_searcher_t::filter(nova::Span<std::string_view> keywords)
 
     // Run filter
 
-    pool.Reset();
+    search_push_constants_t search_pcs {
+        .string_data     = (const uint8_t *)string_data_buf.DeviceAddress(),
+        .string_offsets  = (const uint32_t*)string_offset_buf.DeviceAddress(),
+        .keywords        = (const uint8_t *)keyword_buf.DeviceAddress(),
+        .keyword_offsets = (const uint32_t*)keyword_offset_buf.DeviceAddress(),
+        .match_output    = (      uint8_t *)string_match_mask_buf.DeviceAddress(),
 
-    struct search_push_constants_t {
-        uint64_t string_data_address;
-        uint64_t string_offsets_address;
-        uint64_t match_output_address;
-        uint64_t keywords_address;
-        uint64_t keyword_offset_address;
-        uint32_t string_count;
-        uint32_t keyword_count;
-    } search_pcs;
+        .string_count  = uint32_t(index->string_offsets.size() - 1),
+        .keyword_count = uint32_t(keywords.size()),
+    };
 
-    search_pcs.string_data_address = string_data_buf.DeviceAddress();
-    search_pcs.string_offsets_address = string_offset_buf.DeviceAddress();
-    search_pcs.match_output_address = string_match_mask_buf.DeviceAddress();
-    search_pcs.keywords_address = keyword_buf.DeviceAddress();
-    search_pcs.keyword_offset_address = keyword_offset_buf.DeviceAddress();
-    search_pcs.string_count = uint32_t(index->string_offsets.size() - 1);
-    search_pcs.keyword_count = uint32_t(keywords.size());
+    collate_push_constants_t collate_pcs {
+        .match_mask_in  = (const uint8_t    *)string_match_mask_buf.DeviceAddress(),
+        .nodes          = (const file_node_t*)file_node_buf.DeviceAddress(),
+        .match_mask_out = (      uint8_t    *)file_match_mask_buf.DeviceAddress(),
 
-    struct collate_push_constants_t {
-        uint64_t match_mask_in;
-        uint64_t nodes;
-        uint64_t match_mask_out;
-        uint32_t node_count;
-        uint32_t target_mask;
-    } collate_pcs;
-
-    collate_pcs.match_mask_in = string_match_mask_buf.DeviceAddress();
-    collate_pcs.nodes = file_node_buf.DeviceAddress();
-    collate_pcs.match_mask_out = file_match_mask_buf.DeviceAddress();
-    collate_pcs.node_count = uint32_t(index->file_nodes.size());
-    collate_pcs.target_mask = (1 << keywords.size()) - 1;
+        .node_count  = uint32_t(index->file_nodes.size()),
+        .target_mask = uint32_t(1 << keywords.size()) - 1,
+    };
 
     constexpr uint32_t workgroup_size = 128;
 
-    auto cmd = pool.Begin();
+    auto cmd = queue.Begin();
 
     cmd.BindShaders({ search_shader });
     cmd.PushConstants(search_pcs);
@@ -155,8 +122,7 @@ void file_searcher_t::filter(nova::Span<std::string_view> keywords)
     cmd.Barrier(nova::PipelineStage::Compute, nova::PipelineStage::Transfer);
     cmd.CopyToBuffer(file_match_mask_buf_host, file_match_mask_buf, index->file_nodes.size());
 
-    queue.Submit({cmd}, {}, {fence});
-    fence.Wait();
+    queue.Submit({cmd}, {}).Wait();
 
     auto end = std::chrono::steady_clock::now();
     auto dur = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
